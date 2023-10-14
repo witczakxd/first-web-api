@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/witczakxd/first-web-api/internal/database"
 )
 
@@ -51,7 +54,37 @@ func scrapeFeed (db *database.Queries,wg *sync.WaitGroup,feed database.Feed) {
 	}
 
 	for _,item := range rssFeed.Channel.Item {
-		log.Println("Found item",item.Title, "on feed ",feed.Name)
+		description := sql.NullString{}
+		if item.Description != "" {
+			description.Valid = true
+			description.String = item.Description
+		}
+
+		pubAt,err := time.Parse(time.RFC1123Z,item.PubDate)
+		if err != nil {
+			log.Println("Error while parsing date",err)
+			continue
+		}
+
+		_,err = db.CreatePost(context.Background(),database.CreatePostParams{
+			ID:			uuid.New(),
+			CreatedAt: 	time.Now().UTC(),
+			UpdatedAt: 	time.Now().UTC(),
+			Title: 		item.Title,
+			Description: description,
+			PublishedAt: pubAt,
+			Url: 		item.Link,
+			FeedID: 	feed.ID,
+		})
+
+		if err != nil {
+			if strings.Contains(err.Error(),"unique constraint") {
+				continue
+			}
+			log.Println("Error while creating post",err)
+			continue
+		}
+
 	}
 	log.Printf("Scraped feed %s, %v posts found",feed.Name,len(rssFeed.Channel.Item))
 }
